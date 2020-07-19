@@ -22,10 +22,9 @@ void editaValores(unsigned char *R, unsigned char *G, unsigned char *B, int op) 
 
 int main(void)
 { 
-	char *nomeArquivo = malloc(BUFFER_STR * sizeof(char)); // leitura do nome do arquivo inserido
+	char *nomeArquivo = calloc(BUFFER_STR, sizeof(char)); // leitura do nome do arquivo inserido
 	// leitura do nome de arquivo
-	fgets(nomeArquivo, BUFFER_STR, stdin);
-	nomeArquivo[strlen(nomeArquivo) - 1] = '\0';
+	scanf("%s", nomeArquivo);
 	nomeArquivo = realloc(nomeArquivo, (strlen(nomeArquivo) + 1) * sizeof(char));
 
 	int op; scanf("%d", &op); // leitura da opção de tratamento
@@ -39,13 +38,16 @@ int main(void)
 		return 1;
 	}
 	// tratamento de conferência do formato BMP
-	fseek(arquivo, 0, SEEK_SET);	
-	if((nomeArquivo[strlen(nomeArquivo) - 3] != 'b' || nomeArquivo[strlen(nomeArquivo) - 2] != 'm' || nomeArquivo[strlen(nomeArquivo) - 1] != 'p') || (fgetc(arquivo) != 'B' || fgetc(arquivo) != 'M')) printf("Arquivo nao eh formato BMP\n");
+	fseek(arquivo, 0, SEEK_SET); char f1 = fgetc(arquivo), f2 = fgetc(arquivo);
+	if((nomeArquivo[strlen(nomeArquivo) - 3] != 'b' || nomeArquivo[strlen(nomeArquivo) - 2] != 'm' || nomeArquivo[strlen(nomeArquivo) - 1] != 'p') || (f1 != 'B' || f2 != 'M')) {
+		printf("Arquivo nao eh do formato BMP\n");
+		return 1;
+	}
 
 	// tratamento do nome do arquivo de saída
-	char *nomeSaida = malloc((strlen(nomeArquivo) + ((op == 1) ? 8 : 11) + 1) * sizeof(char));
+	char *nomeSaida = calloc((strlen(nomeArquivo) + ((op == 1) ? 8 : 11) + 1), sizeof(char));
 	strncpy(nomeSaida, nomeArquivo, strlen(nomeArquivo) - 4);                                       	
-	strcpy(nomeSaida + strlen(nomeArquivo) - 4, (op == 1) ? "Negativo.bmp\0" : "PretoBranco.bmp\0");
+	strcpy(nomeSaida + strlen(nomeArquivo) - 4, (op == 1) ? "Negativo.bmp" : "PretoBranco.bmp");
 	FILE *saida = fopen(nomeSaida, "wb"); // criação do ponteiro do arquivo de saída
 
 	// leitura do tamawnho do arquivo
@@ -56,11 +58,11 @@ int main(void)
 	tamanhoArq += fgetc(arquivo) * 256 * 256;
 	tamanhoArq += fgetc(arquivo) * 256 * 256 * 256;
 		
-	unsigned char *imgEditada = malloc(tamanhoArq * sizeof(unsigned char)), // array representativo da imagem editada byte a byte
-				  *paletaOriginal = malloc(256 * 3 * sizeof(char));			// array da paleta original
+	unsigned char *imgEditada = calloc(tamanhoArq, sizeof(unsigned char)), // array representativo da imagem editada byte a byte
+				  *paletaOriginal = calloc(256 * 3, sizeof(char));		   // array da paleta original
 	
 	fseek(arquivo, 0, SEEK_SET);
-	for(int i = 0; i < tamanhoArq; i++) imgEditada[i] = fgetc(arquivo); // cópia da imagem original inciialmente à imagem editada
+	fread(imgEditada, sizeof(char), tamanhoArq, arquivo); // inicializa a imagem editada como cópia da imagem original
 	
 	for(int i = 0; i < 256; i++) {
 		paletaOriginal[i*3 + 0] = imgEditada[INIT_PALETA + i*4 + 0];
@@ -70,21 +72,21 @@ int main(void)
 		editaValores(&imgEditada[INIT_PALETA + i*4], &imgEditada[INIT_PALETA + i*4 + 1], &imgEditada[INIT_PALETA + i*4 + 2], op); // edita os valores da paleta da imagem editada
 	}
 
-	for(int i = 0; i < tamanhoArq; i++)
-		fprintf(saida, "%c", imgEditada[i]); // arquivamento da imagem editada
-	
+	fseek(saida, 0, SEEK_SET);
+	fwrite(imgEditada, sizeof(char), tamanhoArq, saida); // arquivamento da imagem editada
+
 	// exibição das propriedades da imagem
 	fseek(arquivo, 0, SEEK_SET);
-	printf("CABEÇALHO:\n");
+	printf("CABECALHO:\n");
 	char ini1 = fgetc(arquivo), ini2 = fgetc(arquivo);
-	printf("Iniciais: %c%c\n", ini2, ini1);
+	printf("Iniciais: %c%c\n", ini1, ini2);
 	printf("Tamanho do arquivo: %u\n", fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256);
 	printf("Reservado: %d\n", fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256);
 	printf("Deslocamento, em bytes, para o inicio da area de dados: %u\n", fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256);
 	printf("Tamanho em bytes do segundo cabecalho: %u\n", fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256);
 	int largura = fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256,
 		altura = fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256; // leitura da largura e altura da imagem para uso futuro
-	printf("Resoluçao: %d x %d\n", largura, altura);
+	printf("Resolucao: %d x %d\n", largura, altura);
 	printf("Numero de planos: %d\n", fgetc(arquivo) + fgetc(arquivo) * 256);
 	printf("Bits por pixel: %d\n", fgetc(arquivo) + fgetc(arquivo) * 256);
 	printf("Compressao usada: %d\n", fgetc(arquivo) + fgetc(arquivo) * 256 + fgetc(arquivo) * 256 * 256 + fgetc(arquivo) * 256 * 256 * 256);
