@@ -30,6 +30,11 @@ int main(void)
 	int op; scanf("%d", &op); // leitura da opção de tratamento
 
 	FILE *arquivo = fopen(nomeArquivo, "rb"); // abertura do arquivo inserido
+	if (arquivo == NULL) { // trata erro na abertura de arquivo
+		free(nomeArquivo);
+		printf("Erro no arquivo\n");
+		return 1;
+	}
 
 	if(arquivo == NULL) { // tratamento caso erro de arquivo não existente
 		printf("ERRO NA ABERTURA DE ARQUIVO!\n");
