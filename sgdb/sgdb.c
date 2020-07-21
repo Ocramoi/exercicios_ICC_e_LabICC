@@ -4,6 +4,14 @@
 
 #define STR_BUFFER 64 // buffer do realloc de string
 
+typedef struct
+{
+    char *fileName;
+    char *keyName;
+    char *keyType;
+} METADATA;
+
+
 /**
  * Função de leitura da entrada com tratamento. 
  */ 
@@ -86,10 +94,20 @@ int getRegSize(char **fields, int nFields) // calcula e retorna o tamanho da est
     return tamRegistro;
 }
 
-void insert(char **fields, int nFields, char *comando, FILE *arqSaida) // insere registro no arquivo a partir do comando
+void insert(char **fields, int nFields, char *comando, METADATA meta, FILE *arqSaida) // insere registro no arquivo a partir do comando
 {
-    int index = atoi(nSplit(nSplit(comando, ",", 0), " ", 1));
-    fwrite(&index, sizeof(int), 1, arqSaida); // armazena o código por padrão [int]
+    if (!strcmp(meta.keyType, "int")) { // armazena a chave com tipo correto
+        int index = atoi(nSplit(nSplit(comando, ",", 0), " ", 1));
+        fwrite(&index, sizeof(int), 1, arqSaida);
+    }
+    else if (!strcmp(meta.keyType, "double")) {
+        double index = atof(nSplit(nSplit(comando, ",", 0), " ", 1));
+        fwrite(&index, sizeof(double), 1, arqSaida);
+    }
+    else if (!strcmp(meta.keyType, "float")) {
+        float index = (float) atof(nSplit(nSplit(comando, ",", 0), " ", 1));
+        fwrite(&index, sizeof(float), 1, arqSaida);
+    }
 
     for (int i = 0; i < nFields; i++) // escreve os parâmetros do comando a partir do tipo de campo
     {
@@ -115,40 +133,80 @@ void insert(char **fields, int nFields, char *comando, FILE *arqSaida) // insere
     }
 }
 
-void _index(char **fields, int nFields, FILE *arquivo) // gera o arquivo de indexação ordenada
+void _index(char **fields, int nFields, METADATA meta, FILE *arquivo) // gera o arquivo de indexação ordenada
 {
     long pos = ftell(arquivo), // posição atual do cursor no arquivo
          tamArquivo = getFileSize(arquivo),
          tamRegistro = getRegSize(fields, nFields),
          nRegistros = tamArquivo/tamRegistro; // obtem o número de registros a partir do tamanho da arquivo e do tamanho de cada registro
 
-    fseek(arquivo, 0, SEEK_SET); // lê o código e posição relativa no arquivo de cada registro
-    int *regis = malloc(2*nRegistros*sizeof(int));
-    for(int i = 0; i < nRegistros*2; i += 2) {
-        int atual = ftell(arquivo);
-        fread(&regis[i], sizeof(int), 1, arquivo);
-        regis[i + 1] = atual;
-        fseek(arquivo, atual + tamRegistro, SEEK_SET); 
+    int *posicoes = malloc(nRegistros*sizeof(int));
+    for (int i = 0; i < nRegistros; i++) posicoes[i] = i*tamRegistro; // cria lista de índices de posição dos registros no arquivo
+
+    int *iRegis = NULL;
+    float *fRegis = NULL;
+    double *dRegis = NULL; // cria variáveis para alocação do tipo necessário de valor
+
+    if (!strcmp(meta.keyType, "int")) { // cria lista de códigos do tipo correto
+        iRegis = malloc(nRegistros*sizeof(int));
+        for(int i = 0; i < nRegistros; i++) {
+            fseek(arquivo, i*tamRegistro, SEEK_SET);
+            fread(&iRegis[i], sizeof(int), 1, arquivo);
+        }
     }
-
-    for (int i = 0; i < nRegistros; i++) { // selection sort entre os registros indexados (tratando ambos os campos)
-        int index = i;
-
-        for (int j = i; j < nRegistros; j++) 
-            if (regis[j*2] < regis[index*2]) index = j;
-        
-        if (index != i) {
-            int tempIndex = regis[index*2],
-                tempPos = regis[index*2 + 1];
-            
-            regis[index*2] = regis[i*2]; regis[index*2 + 1] = regis[i*2 + 1];
-            regis[i*2] = tempIndex; regis[i*2 + 1] = tempPos;
+    else if (!strcmp(meta.keyType, "double")) {
+        dRegis = malloc(nRegistros*sizeof(double));
+        for(int i = 0; i < nRegistros; i++) {
+            fseek(arquivo, i*tamRegistro, SEEK_SET);
+            fread(&dRegis[i], sizeof(double), 1, arquivo);
+        }
+    }
+    else if (!strcmp(meta.keyType, "float")) {
+        fRegis = malloc(nRegistros*sizeof(float));
+        for(int i = 0; i < nRegistros; i++) {
+            fseek(arquivo, i*tamRegistro, SEEK_SET);
+            fread(&fRegis[i], sizeof(float), 1, arquivo);
         }
     }
 
-    FILE *idx = fopen("registros.idx", "w");
-    fwrite(regis, sizeof(int), nRegistros*2, idx);
-    fclose(idx); // salva arquivo de indexação
+    for (int i = 0; i < nRegistros; i++) { // selection sort entre os registros e códigos indexados (tratando ambos os campos)
+        int index = i;
+
+        for (int j = i; j < nRegistros; j++) {
+            if (iRegis && iRegis[j] < iRegis[index]) index = j;
+            else if (fRegis && fRegis[j] < fRegis[index]) index = j;
+            else if (dRegis && dRegis[j] < dRegis[index]) index = j;
+        }
+        
+        if (index != i) {
+            posicoes[i] = posicoes[i] + posicoes[index];
+            posicoes[index] = posicoes[i] - posicoes[index];
+            posicoes[i] = posicoes[i] - posicoes[index];
+
+            if (iRegis) {
+                iRegis[i] = iRegis[i] + iRegis[index];
+                iRegis[index] = iRegis[i] - iRegis[index];
+                iRegis[i] = iRegis[i] - iRegis[index];
+            } else if (fRegis) {
+                fRegis[i] = fRegis[i] + fRegis[index];
+                fRegis[index] = fRegis[i] - fRegis[index];
+                fRegis[i] = fRegis[i] - fRegis[index];
+            } else if (dRegis) {
+                dRegis[i] = dRegis[i] + dRegis[index];
+                dRegis[index] = dRegis[i] - dRegis[index];
+                dRegis[i] = dRegis[i] - dRegis[index];
+            }
+        }
+    }
+
+    FILE *idx = fopen("registros.idx", "w"); // salva registros para o arquivo de indexação
+    for (int i = 0; i < nRegistros; i++) {
+        if (iRegis) fwrite(&iRegis[i], sizeof(int), 1, idx);
+        else if (dRegis) fwrite(&dRegis[i], sizeof(double), 1, idx);
+        else if (fRegis) fwrite(&fRegis[i], sizeof(float), 1, idx);
+        fwrite(&posicoes[i], sizeof(int), 1, idx);
+    }
+    fclose(idx); // fecha arquivo de indexação
 
     fseek(arquivo, pos, SEEK_SET); // retorna cursor do arquivo
 }
@@ -172,9 +230,9 @@ int regBinarySearch(int *regis, int start, int end, int key) // busca binária r
     return -1; // retorno em caso de falha na pesquisa
 }
 
-void search(char **fields, int nFields, FILE *arquivo, int key, char *keyname)
+void search(char **fields, int nFields, FILE *arquivo, int key, METADATA meta)
 {
-    _index(fields, nFields, arquivo);
+    _index(fields, nFields, meta, arquivo);
     FILE *registros = fopen("registros.idx", "r"); // cria o arquivo de indexação e o abre para busca  
 
     int numRegistros = getFileSize(registros)/(2*sizeof(int)), // calcula o número de registros no arquivo
@@ -189,10 +247,21 @@ void search(char **fields, int nFields, FILE *arquivo, int key, char *keyname)
         // posiciona o cursor na posição correta do arquivo e lê e exibe seus campos
         fseek(arquivo, correto, SEEK_SET);
         
-        int index; fread(&index, sizeof(int), 1, arquivo);
-        printf("%s: %d\n", keyname, index);
+        printf("%s: ", meta.keyName);
+        if (!strcmp(meta.keyType, "int")) { // exibe o tipo correto de chave
+            int index; fread(&index, sizeof(int), 1, arquivo);
+            printf("%d\n", index);
+        }
+        else if (!strcmp(meta.keyType, "double")) {
+            double index; fread(&index, sizeof(double), 1, arquivo);
+            printf("%lf\n", index);
+        }
+        else if (!strcmp(meta.keyType, "float")) {
+            float index; fread(&index, sizeof(float), 1, arquivo);
+            printf("%f\n", index);
+        }
         
-        for (int i = 0; i < nFields; i++)
+        for (int i = 0; i < nFields; i++) // exibe os campos de registro de acordo com tipo
         {
             printf("%s: ", fields[i*2]);
             if(!strcmp(nSplit(fields[i*2 + 1], "[", 0), "char")) {
@@ -230,9 +299,10 @@ int main(void)
     FILE *arqMeta = fopen(nomeArqMeta, "r"); // abre o arquivo digitado
 
     // lê os metadatos padrão (nome do arquivo de arquivo e propriedades do índice)
-    char *fileName = nSplit(readLine(arqMeta), ": ", 1);
-    char *keyName = nSplit(readLine(arqMeta), ": ", 1);
-    char *keyType = nSplit(readLine(arqMeta), ": ", 1);
+    METADATA mData;
+    mData.fileName = nSplit(readLine(arqMeta), ": ", 1);
+    mData.keyName  = nSplit(readLine(arqMeta), ": ", 1);
+    mData.keyType  = nSplit(readLine(arqMeta), ": ", 1);
     
     char **fields = NULL;
     int nFields = 0; // variáveis da lista de campos [metadados]
@@ -250,7 +320,7 @@ int main(void)
     } while (strlen(field1) > 0);
     free(field1); free(field2); // libera variáveis auxiliares
 
-    FILE *arqSaida = fopen(fileName, "a+"); // abre arquivo de saída para acréscimo de dados e leitura
+    FILE *arqSaida = fopen(mData.fileName, "a+"); // abre arquivo de saída para acréscimo de dados e leitura
 
     char *comando = NULL,
          *op; // variáveis para leitura dos comandos digitados
@@ -262,9 +332,9 @@ int main(void)
         
         // realiza a operação digitadas
         if(!strcmp(op, "exit")) break;
-        else if (!strcmp(op, "insert")) { insert(fields, nFields, comando, arqSaida); }
-        else if (!strcmp(op, "index")) _index(fields, nFields, arqSaida);
-        else if (!strcmp(op, "search")) search(fields, nFields, arqSaida, atoi(nSplit(comando, " ", 1)), keyName);
+        else if (!strcmp(op, "insert")) { insert(fields, nFields, comando, mData, arqSaida); }
+        else if (!strcmp(op, "index")) _index(fields, nFields, mData, arqSaida);
+        else if (!strcmp(op, "search")) search(fields, nFields, arqSaida, atoi(nSplit(comando, " ", 1)), mData);
     } while (strcmp(op, "exit"));
 
     // libera vetor de campos
@@ -273,7 +343,7 @@ int main(void)
     free(fields);
 
     fclose(arqMeta); fclose(arqSaida); // fecha arquivos abertos
-    free(op); free(comando); free(nomeArqMeta); free(fileName); free(keyName); free(keyType); // libera memória alocada
+    free(op); free(comando); free(nomeArqMeta); free(mData.fileName); free(mData.keyName); free(mData.keyType); // libera memória alocada
 
     return 0;
 }
